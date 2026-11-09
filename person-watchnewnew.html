@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>人感ウォッチ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: 左に映像ステージと録画クリップ、右に設定と検知ログの2カラム。狭い幅では1列に積む。 */
+:root{
+  --bg:#eaeef2;
+  --surface:#ffffff;
+  --surface-2:#f3f6f9;
+  --ink:#16202a;
+  --muted:#5a6773;
+  --line:#d3dae1;
+  --accent:#0d6b6e;
+  --accent-ink:#ffffff;
+  --alert:#d4460a;
+  --ok:#2b8a3e;
+  --stage:#0c1318;
+  --font-body:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","Meiryo",system-ui,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#10161c;
+    --surface:#18212a;
+    --surface-2:#1f2a34;
+    --ink:#e5ebf0;
+    --muted:#92a0ac;
+    --line:#2c3844;
+    --accent:#3fc1b9;
+    --accent-ink:#06211f;
+    --alert:#ff8a4c;
+    --ok:#6bd47f;
+    --stage:#070b0f;
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.6;
+  padding-block:20px 48px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+}
+[hidden]{display:none!important}
+.app{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}
+h1{font-size:1.45rem;margin:0;letter-spacing:.02em}
+h1 small{display:block;font-size:.8rem;font-weight:400;color:var(--muted);letter-spacing:0}
+h2{font-size:.95rem;margin:0 0 12px;letter-spacing:.04em}
+.pill{
+  display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;
+  background:var(--surface);border:1px solid var(--line);font-weight:700;font-size:.9rem;
+}
+.pill::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--muted)}
+.pill[data-state="ok"]::before{background:var(--ok)}
+.pill[data-state="wait"]::before{background:var(--accent)}
+.pill[data-state="alert"]{border-color:var(--alert);color:var(--alert)}
+.pill[data-state="alert"]::before{background:var(--alert)}
+.grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(300px,1fr);gap:16px;align-items:start}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px}
+.stage{position:relative;aspect-ratio:16/9;max-width:100%;background:var(--stage);border-radius:8px;overflow:hidden}
+.stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%}
+.stage video{object-fit:contain}
+.stage .empty{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;
+  padding:24px;color:#9fb0bd;font-size:.95rem
+}
+.chip{
+  position:absolute;top:10px;padding:3px 10px;border-radius:4px;background:rgba(8,12,16,.72);color:#eef3f6;
+  font-family:var(--font-mono);font-size:.78rem;font-variant-numeric:tabular-nums
+}
+.chip.left{left:10px}.chip.right{right:10px}
+.chip .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#ff5a4d;margin-right:6px;animation:blink 1.2s steps(2,start) infinite}
+.banner{
+  position:absolute;left:10px;right:10px;bottom:10px;padding:10px 14px;border-radius:6px;
+  background:var(--alert);color:#fff;font-weight:700;display:flex;justify-content:space-between;gap:12px;align-items:center
+}
+.banner span:last-child{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:600}
+@keyframes blink{to{visibility:hidden}}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}
+button,select,input[type=number]{font:inherit;color:inherit}
+.btn{
+  appearance:none;border:1px solid var(--line);background:var(--surface-2);padding:8px 16px;border-radius:6px;
+  cursor:pointer;font-weight:700
+}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.danger{border-color:var(--alert);color:var(--alert);background:transparent}
+.btn.small{padding:4px 10px;font-size:.82rem}
+.btn:hover{filter:brightness(1.06)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+select,input[type=number]{
+  background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:7px 10px;max-width:100%
+}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.field:last-child{margin-bottom:0}
+.field > label,.field > .label{font-weight:700;font-size:.85rem}
+.field .hint{color:var(--muted);font-size:.8rem}
+.row{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.seg{display:flex;flex-direction:column;gap:6px}
+.seg label{display:flex;gap:8px;align-items:flex-start;cursor:pointer}
+.seg input{margin-top:5px}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.range-val{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+ul.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.item{
+  display:flex;gap:12px;align-items:center;padding:8px;border:1px solid var(--line);border-radius:6px;
+  background:var(--surface-2)
+}
+.item img{width:96px;aspect-ratio:16/9;object-fit:cover;border-radius:4px;background:var(--stage);flex:none}
+.item .meta{min-width:0;flex:1}
+.item .t{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:600}
+.item .s{color:var(--muted);font-size:.82rem}
+.clip{display:block}
+.clip .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+.clip details{margin-top:8px}
+.clip summary{cursor:pointer;font-size:.85rem;color:var(--accent);font-weight:700}
+.clip video{width:100%;margin-top:8px;border-radius:4px;background:var(--stage)}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+.acts a{text-decoration:none;display:inline-block}
+.none{color:var(--muted);font-size:.88rem;padding:8px 0}
+.warn{color:var(--muted);font-size:.8rem;margin:0 0 12px}
+.toast{
+  position:fixed;left:50%;bottom:max(16px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);
+  background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:6px;max-width:min(92vw,520px);z-index:20;
+  font-size:.88rem
+}
+.card-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px}
+.card-head h2{margin:0}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.controls + .warn{margin:12px 0 0}
+@media (max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}}
+@media (prefers-reduced-motion:reduce){.chip .dot{animation:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>人感ウォッチ<small>カメラで録画しながら、人が映ったらすぐ知らせます</small></h1>
+    <span class="pill" id="pill" data-state="idle">カメラ停止中</span>
+  </header>
+
+  <div class="grid">
+    <div class="col">
+      <section class="card" aria-label="カメラ映像">
+        <div class="stage" id="stage">
+          <video id="video" playsinline muted></video>
+          <canvas id="overlay"></canvas>
+          <div class="empty" id="empty">「カメラを開始」を押すと、ここに映像が表示されます。</div>
+          <div class="chip left" id="clock" hidden></div>
+          <div class="chip right" id="recChip" hidden></div>
+          <div class="banner" id="banner" role="alert" hidden><span>人を検知しました</span><span id="bannerTime"></span></div>
+        </div>
+        <div class="controls">
+          <button class="btn primary" id="btnCam" type="button">カメラを開始</button>
+          <select id="device" aria-label="使用するカメラ"><option value="">既定のカメラ</option></select>
+          <button class="btn" id="btnTest" type="button">通知をテスト</button>
+          <label class="btn" for="fileCap">撮影して解析</label>
+          <input class="sr" type="file" id="fileCap" accept="video/*" capture="environment">
+          <label class="btn" for="filePick">動画を選んで解析</label>
+          <input class="sr" type="file" id="filePick" accept="video/*">
+        </div>
+        <p class="warn" id="fallback" hidden>この環境ではライブ映像を使えません。「撮影して解析」でカメラアプリから撮った動画を読み込むと、人が映った時刻を検出できます。</p>
+      </section>
+
+      <section class="card" aria-label="録画クリップ">
+        <div class="card-head">
+          <h2>録画クリップ</h2>
+        </div>
+        <p class="warn">クリップはこのタブのメモリに保持されます。タブを閉じる前に「保存」してください。</p>
+        <ul class="list" id="clips"></ul>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card" aria-label="設定">
+        <h2>設定</h2>
+        <div class="field">
+          <span class="label">検知方法</span>
+          <div class="seg">
+            <label><input type="radio" name="det" value="person" checked><span>人物を検知(AI)<br><span class="hint">人だけに反応します。初回はモデルを読み込みます。</span></span></label>
+            <label><input type="radio" name="det" value="motion"><span>動きを検知(軽量)<br><span class="hint">動くものすべてに反応します。通信は不要です。</span></span></label>
+          </div>
+        </div>
+        <div class="field">
+          <label for="sens">感度 <span class="range-val" id="sensVal">6</span></label>
+          <input type="range" id="sens" min="1" max="10" step="1" value="6">
+          <span class="hint">上げるほど小さな人影や動きにも反応します。</span>
+        </div>
+        <div class="field">
+          <label for="recMode">録画</label>
+          <select id="recMode">
+            <option value="continuous">常時録画(5分ごとに分割)</option>
+            <option value="event">検知したときだけ録画</option>
+            <option value="off">録画しない</option>
+          </select>
+        </div>
+        <div class="field">
+          <div class="row">
+            <label for="post">検知後も録画する秒数</label>
+            <input type="number" id="post" min="3" max="120" value="10" style="width:84px">
+          </div>
+          <div class="row">
+            <label for="cool">通知の間隔(秒)</label>
+            <input type="number" id="cool" min="0" max="600" value="10" style="width:84px">
+          </div>
+        </div>
+        <div class="field">
+          <span class="label">知らせ方</span>
+          <label class="row"><input type="checkbox" id="optSound" checked> 音で知らせる</label>
+          <label for="vol">音量 <span class="range-val" id="volVal">80</span></label>
+          <input type="range" id="vol" min="0" max="100" step="5" value="80">
+          <label class="row"><input type="checkbox" id="optKeep" checked> イヤホンの音切れを防ぐ</label>
+          <span class="hint">Bluetoothイヤホンは無音が続くと眠り、最初の音が欠けることがあります。オンにすると、監視中は聞こえない程度の信号を流し続けます。</span>
+          <div class="row">
+            <button class="btn small" id="btnOut" type="button" hidden>音の出力先を選ぶ</button>
+            <span class="hint" id="outHint">音は端末の出力先(接続中のイヤホンなど)から鳴ります。</span>
+          </div>
+          <div class="row">
+            <button class="btn small" id="btnNotify" type="button">通知を許可</button>
+            <span class="hint">画面のバナーと、タブ名の点滅も使います。</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" aria-label="検知ログ">
+        <div class="card-head">
+          <h2>検知ログ</h2>
+          <button class="btn small" id="btnClearLog" type="button">消去</button>
+        </div>
+        <ul class="list" id="events"></ul>
+      </section>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+(function(){
+  "use strict";
+  var $ = function(id){ return document.getElementById(id); };
+  var video=$("video"), overlay=$("overlay"), octx=overlay.getContext("2d"), stage=$("stage");
+  var TF_URL="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js";
+  var COCO_URL="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js";
+
+  var stream=null, model=null, modelLoading=false, tickTimer=null, clockTimer=null, busy=false;
+  var detMode="person", recMode="continuous";
+  var present=false, lastSeen=0, lastAlert=0;
+  var fileMode=false, fileUrl=null;
+  var recorder=null, recStart=0, recAuto=false, autoStopAt=0, rotateTimer=null;
+  var clips=[], events=[], clipSeq=0;
+  var master=null, keepSrc=null;
+  var audioCtx=null, wakeLock=null, titleTimer=null, bannerTimer=null, toastTimer=null;
+  var prevGray=null, probe=document.createElement("canvas"), pctx=probe.getContext("2d", {willReadFrequently:true});
+  var baseTitle=document.title;
+
+  /* ---------- helpers ---------- */
+  function pad(n){ return (n<10?"0":"")+n; }
+  function hms(d){ return pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds()); }
+  function ymdhms(d){ return d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+"_"+pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds()); }
+  function dur(sec){ sec=Math.max(0,Math.round(sec)); return pad(Math.floor(sec/3600))+":"+pad(Math.floor(sec%3600/60))+":"+pad(sec%60); }
+  function mb(bytes){ return (bytes/1048576).toFixed(1)+" MB"; }
+  function el(tag, props, kids){
+    var e=document.createElement(tag);
+    if(props){ Object.keys(props).forEach(function(k){
+      if(k==="class") e.className=props[k];
+      else if(k==="text") e.textContent=props[k];
+      else e.setAttribute(k, props[k]);
+    }); }
+    (kids||[]).forEach(function(c){ e.appendChild(c); });
+    return e;
+  }
+  function toast(msg){
+    var t=$("toast"); t.textContent=msg; t.hidden=false;
+    clearTimeout(toastTimer); toastTimer=setTimeout(function(){ t.hidden=true; }, 5000);
+  }
+  function loadScript(src){
+    return new Promise(function(res, rej){
+      var s=document.createElement("script"); s.src=src; s.onload=res;
+      s.onerror=function(){ rej(new Error("load failed: "+src)); };
+      document.head.appendChild(s);
+    });
+  }
+
+  /* ---------- status ---------- */
+  function setStatus(){
+    var t, c;
+    if(!stream && !fileMode){ t="カメラ停止中"; c="idle"; }
+    else if(detMode==="person" && !model){ t=modelLoading?"AIモデルを読み込み中…":"準備中"; c="wait"; }
+    else if(present){ t="人を検知中"; c="alert"; }
+    else { t=fileMode?"動画を解析中":"監視中"; c="ok"; }
+    $("pill").textContent=t; $("pill").setAttribute("data-state", c);
+  }
+  function updateClock(){
+    var now=new Date();
+    var clock=$("clock"), chip=$("recChip");
+    clock.hidden=!stream; chip.hidden=!(stream && recorder);
+    if(stream) clock.textContent=now.getFullYear()+"/"+pad(now.getMonth()+1)+"/"+pad(now.getDate())+" "+hms(now);
+    if(recorder){
+      chip.textContent="";
+      chip.appendChild(el("span",{class:"dot"}));
+      chip.appendChild(document.createTextNode("REC "+dur((Date.now()-recStart)/1000)));
+    }
+  }
+
+  /* ---------- camera ---------- */
+  async function refreshDevices(){
+    try{
+      var list=await navigator.mediaDevices.enumerateDevices();
+      var cams=list.filter(function(d){ return d.kind==="videoinput"; });
+      var sel=$("device"), cur=sel.value;
+      sel.textContent="";
+      sel.appendChild(el("option",{value:"",text:"既定のカメラ"}));
+      cams.forEach(function(d,i){ sel.appendChild(el("option",{value:d.deviceId,text:d.label||("カメラ "+(i+1))})); });
+      if(cur) sel.value=cur;
+    }catch(e){}
+  }
+  async function startCamera(){
+    stopFile();
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      toast("この環境ではライブ映像を使えません。「撮影して解析」をお試しください。"); $("fallback").hidden=false; return;
+    }
+    stopCamera();
+    ensureAudio();
+    var v={width:{ideal:1280},height:{ideal:720}};
+    if($("device").value) v.deviceId={exact:$("device").value};
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({video:v,audio:false});
+    }catch(e){
+      stream=null;
+      var m="カメラを開始できませんでした。";
+      if(e && e.name==="NotAllowedError") m="カメラの使用が許可されていません。アドレスバー付近のカメラ設定で許可してください。";
+      else if(e && e.name==="NotFoundError") m="カメラが見つかりません。接続を確認してください。";
+      else if(e && e.name==="NotReadableError") m="カメラを他のアプリが使用中です。閉じてからもう一度お試しください。";
+      toast(m); $("fallback").hidden=false; setStatus(); return;
+    }
+    video.srcObject=stream; startKeepAlive();
+    try{ await video.play(); }catch(e){}
+    $("empty").hidden=true;
+    $("btnCam").textContent="カメラを停止"; $("btnCam").classList.remove("primary"); $("btnCam").classList.add("danger");
+    refreshDevices();
+    requestWake();
+    present=false; prevGray=null;
+    if(detMode==="person") ensureModel();
+    tickTimer=setInterval(tick, 250);
+    clockTimer=setInterval(updateClock, 1000);
+    applyRecMode();
+    updateClock(); setStatus();
+  }
+  function stopCamera(){
+    stopRecording();
+    clearInterval(tickTimer); clearInterval(clockTimer); tickTimer=null; clockTimer=null;
+    if(stream){ stream.getTracks().forEach(function(t){ t.stop(); }); }
+    stream=null; video.srcObject=null; present=false; prevGray=null; stopKeepAlive();
+    octx.clearRect(0,0,overlay.width,overlay.height);
+    $("empty").hidden=false; $("banner").hidden=true;
+    $("btnCam").textContent="カメラを開始"; $("btnCam").classList.add("primary"); $("btnCam").classList.remove("danger");
+    if(wakeLock){ try{ wakeLock.release(); }catch(e){} wakeLock=null; }
+    updateClock(); setStatus();
+  }
+  function requestWake(){
+    try{
+      if(navigator.wakeLock && document.visibilityState==="visible"){
+        navigator.wakeLock.request("screen").then(function(l){ wakeLock=l; }).catch(function(){});
+      }
+    }catch(e){}
+  }
+  video.addEventListener("loadedmetadata", function(){
+    var w=video.videoWidth, h=video.videoHeight;
+    if(!w||!h) return;
+    stage.style.aspectRatio=w+" / "+h;
+    overlay.width=w; overlay.height=h;
+    probe.width=80; probe.height=Math.max(1,Math.round(80*h/w));
+  });
+
+  /* ---------- AI model ---------- */
+  async function ensureModel(){
+    if(model||modelLoading) return;
+    modelLoading=true; setStatus();
+    try{
+      if(!window.tf) await loadScript(TF_URL);
+      if(!window.cocoSsd) await loadScript(COCO_URL);
+      model=await window.cocoSsd.load({base:"lite_mobilenet_v2"});
+    }catch(e){
+      console.error(e);
+      toast("AIモデルを読み込めませんでした。動き検知に切り替えます。");
+      setDetMode("motion");
+    }finally{
+      modelLoading=false; setStatus();
+    }
+  }
+
+  /* ---------- detection ---------- */
+  function sens(){ return Number($("sens").value); }
+  function confThreshold(){ return 0.8 - sens()*0.055; }      // 感度6 → 0.47
+  function motionThreshold(){ return 0.085 - sens()*0.0075; } // 感度6 → 0.04
+
+  function motionDetect(){
+    var w=probe.width, h=probe.height;
+    if(!w||!h) return [];
+    pctx.drawImage(video,0,0,w,h);
+    var d=pctx.getImageData(0,0,w,h).data, n=w*h, gray=new Uint8Array(n);
+    for(var i=0;i<n;i++){ gray[i]=(d[i*4]*0.299+d[i*4+1]*0.587+d[i*4+2]*0.114)|0; }
+    var prev=prevGray; prevGray=gray;
+    if(!prev) return [];
+    var cnt=0, minX=w, minY=h, maxX=-1, maxY=-1;
+    for(var y=0;y<h;y++){ for(var x=0;x<w;x++){
+      var k=y*w+x;
+      if(Math.abs(gray[k]-prev[k])>28){
+        cnt++; if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y;
+      }
+    } }
+    if(cnt/n < motionThreshold()) return [];
+    var sx=video.videoWidth/w, sy=video.videoHeight/h;
+    return [{x:minX*sx,y:minY*sy,w:(maxX-minX+1)*sx,h:(maxY-minY+1)*sy,label:"動き"}];
+  }
+
+  async function tick(){
+    if(busy||(!stream&&!fileMode)||video.readyState<2||(fileMode&&video.paused)) return;
+    busy=true;
+    try{
+      var boxes;
+      if(detMode==="person"){
+        if(!model){ return; }
+        var th=confThreshold();
+        var preds=await model.detect(video);
+        boxes=preds.filter(function(p){ return p.class==="person" && p.score>=th; }).map(function(p){
+          return {x:p.bbox[0],y:p.bbox[1],w:p.bbox[2],h:p.bbox[3],label:"人 "+Math.round(p.score*100)+"%"};
+        });
+      }else{
+        boxes=motionDetect();
+      }
+      if(stream||fileMode) handle(boxes);
+    }catch(e){
+      console.error(e);
+    }finally{
+      busy=false;
+    }
+  }
+
+  function draw(boxes){
+    octx.clearRect(0,0,overlay.width,overlay.height);
+    if(!boxes.length) return;
+    var color=getComputedStyle(document.documentElement).getPropertyValue("--alert").trim()||"#d4460a";
+    var lw=Math.max(2, overlay.width/320), fs=Math.max(14, overlay.width/42);
+    octx.lineWidth=lw; octx.strokeStyle=color; octx.font="700 "+fs+"px sans-serif"; octx.textBaseline="top";
+    boxes.forEach(function(b){
+      octx.strokeRect(b.x,b.y,b.w,b.h);
+      var tw=octx.measureText(b.label).width+12, th=fs+6, ty=b.y-th>=0?b.y-th:b.y;
+      octx.fillStyle=color; octx.fillRect(b.x,ty,tw,th);
+      octx.fillStyle="#fff"; octx.fillText(b.label,b.x+6,ty+3);
+    });
+  }
+
+  function handle(boxes){
+    var now=Date.now();
+    draw(boxes);
+    if(boxes.length){
+      lastSeen=now;
+      if(!present){
+        present=true;
+        var cool=Math.max(0,Number($("cool").value)||0)*1000;
+        if(now-lastAlert>=cool){ lastAlert=now; raiseAlert(boxes.length); }
+      }
+      if(recMode==="event"){
+        if(!recorder) startRecording(true);
+        autoStopAt=now+Math.max(3,Number($("post").value)||10)*1000;
+      }
+    }else if(present && now-lastSeen>=3000){
+      present=false;
+    }
+    if(recorder && recAuto && recMode==="event" && now>autoStopAt) stopRecording();
+    setStatus();
+  }
+
+  /* ---------- alert ---------- */
+  function ensureAudio(){
+    try{
+      if(!audioCtx){
+        audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+        master=audioCtx.createGain(); master.connect(audioCtx.destination);
+        applyVolume();
+      }
+      if(audioCtx.state==="suspended") audioCtx.resume();
+    }catch(e){ audioCtx=null; master=null; }
+    return audioCtx;
+  }
+  function applyVolume(){
+    $("volVal").textContent=$("vol").value;
+    if(master) master.gain.value=Number($("vol").value)/100;
+  }
+  /* Bluetoothイヤホンは無音が続くと眠り、最初の音が欠ける。聞こえない微弱な信号を流して起こしておく。 */
+  function startKeepAlive(){
+    stopKeepAlive();
+    if(!$("optKeep").checked || !ensureAudio()) return;
+    try{
+      var len=audioCtx.sampleRate, buf=audioCtx.createBuffer(1,len,audioCtx.sampleRate), d=buf.getChannelData(0);
+      for(var i=0;i<len;i++){ d[i]=(Math.random()*2-1)*0.0006; }
+      var src=audioCtx.createBufferSource(); src.buffer=buf; src.loop=true;
+      src.connect(audioCtx.destination); src.start();
+      keepSrc=src;
+    }catch(e){}
+  }
+  function stopKeepAlive(){
+    if(keepSrc){ try{ keepSrc.stop(); }catch(e){} keepSrc=null; }
+  }
+  async function chooseOutput(){
+    if(!ensureAudio()) return;
+    try{
+      var dev=await navigator.mediaDevices.selectAudioOutput();
+      await audioCtx.setSinkId(dev.deviceId);
+      $("outHint").textContent="出力先: "+(dev.label||"選択したデバイス");
+    }catch(e){
+      toast("出力先を切り替えられませんでした。端末の設定で出力先を選んでください。");
+    }
+  }
+  function beep(){
+    if(!$("optSound").checked) return;
+    if(!ensureAudio()) return;
+    try{
+      var t0=audioCtx.currentTime+0.05;
+      [880,1175,880,1175].forEach(function(f,i){
+        var o=audioCtx.createOscillator(), g=audioCtx.createGain(), s=t0+i*0.22;
+        o.type="triangle"; o.frequency.value=f;
+        g.gain.setValueAtTime(0.0001,s);
+        g.gain.exponentialRampToValueAtTime(0.7,s+0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001,s+0.19);
+        o.connect(g); g.connect(master);
+        o.start(s); o.stop(s+0.21);
+      });
+    }catch(e){}
+  }
+  function showBanner(text, time){
+    $("banner").firstChild.textContent=text; $("bannerTime").textContent=time; $("banner").hidden=false;
+    clearTimeout(bannerTimer); bannerTimer=setTimeout(function(){ $("banner").hidden=true; }, 6000);
+    clearInterval(titleTimer);
+    var on=false;
+    titleTimer=setInterval(function(){ on=!on; document.title=on?"⚠ "+text:baseTitle; }, 800);
+    setTimeout(function(){ clearInterval(titleTimer); document.title=baseTitle; }, 6000);
+  }
+  function snapshot(){
+    var w=320, h=Math.round(w*(video.videoHeight||9)/(video.videoWidth||16));
+    var c=document.createElement("canvas"); c.width=w; c.height=h;
+    c.getContext("2d").drawImage(video,0,0,w,h);
+    return c.toDataURL("image/jpeg",0.7);
+  }
+  function raiseAlert(count){
+    var now=new Date(), time=fileMode?"動画 "+dur(video.currentTime):hms(now);
+    events.unshift({time:now, count:count, thumb:snapshot(), at:fileMode?video.currentTime:null});
+    if(events.length>50) events.pop();
+    renderEvents();
+    showBanner("人を検知しました", time);
+    beep();
+    if("Notification" in window && Notification.permission==="granted"){
+      try{ new Notification("人を検知しました", {body:time+" にカメラが人を検知しました"}); }catch(e){}
+    }
+  }
+
+  /* ---------- recording ---------- */
+  function pickMime(){
+    var c=["video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm","video/mp4"];
+    for(var i=0;i<c.length;i++){ if(MediaRecorder.isTypeSupported(c[i])) return c[i]; }
+    return "";
+  }
+  function startRecording(auto){
+    if(recorder||!stream) return;
+    if(!window.MediaRecorder){ toast("このブラウザは録画に対応していません。"); return; }
+    var mime=pickMime(), opts={videoBitsPerSecond:2000000};
+    if(mime) opts.mimeType=mime;
+    var chunks=[], started=Date.now(), rec;
+    try{ rec=new MediaRecorder(stream, opts); }catch(e){ toast("録画を開始できませんでした。"); return; }
+    rec.ondataavailable=function(e){ if(e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop=function(){
+      var type=rec.mimeType||"video/webm";
+      var blob=new Blob(chunks,{type:type});
+      if(blob.size<1) return;
+      var d=new Date(started);
+      clips.unshift({
+        id:++clipSeq, name:"rec_"+ymdhms(d)+(type.indexOf("mp4")>=0?".mp4":".webm"),
+        start:d, seconds:(Date.now()-started)/1000, size:blob.size, url:URL.createObjectURL(blob)
+      });
+      renderClips();
+    };
+    rec.start(1000);
+    recorder=rec; recAuto=!!auto; recStart=started;
+    clearTimeout(rotateTimer);
+    rotateTimer=setTimeout(rotateRecording, 5*60*1000);
+    updateClock();
+  }
+  function stopRecording(){
+    clearTimeout(rotateTimer);
+    if(recorder){
+      var r=recorder; recorder=null;
+      try{ r.stop(); }catch(e){}
+    }
+    updateClock();
+  }
+  function rotateRecording(){
+    if(!recorder) return;
+    var auto=recAuto;
+    stopRecording();
+    startRecording(auto);
+  }
+  function applyRecMode(){
+    if(!stream) return;
+    if(recMode==="continuous"){
+      if(recorder && recAuto){ stopRecording(); }
+      if(!recorder) startRecording(false);
+    }else if(recMode==="event"){
+      if(recorder && !recAuto) stopRecording();
+    }else{
+      stopRecording();
+    }
+  }
+
+  /* ---------- lists ---------- */
+  function renderEvents(){
+    var ul=$("events"); ul.textContent="";
+    if(!events.length){ ul.appendChild(el("li",{class:"none",text:"まだ検知はありません。"})); return; }
+    events.forEach(function(ev){
+      var li=el("li",{class:"item"},[
+        el("img",{src:ev.thumb,alt:"検知時のスナップショット"}),
+        el("div",{class:"meta"},[
+          el("div",{class:"t",text:ev.at!=null?"動画 "+dur(ev.at):hms(ev.time)}),
+          el("div",{class:"s",text:ev.time.getFullYear()+"/"+pad(ev.time.getMonth()+1)+"/"+pad(ev.time.getDate())+" ・ "+ev.count+"件"})
+        ])
+      ]);
+      ul.appendChild(li);
+    });
+  }
+  function renderClips(){
+    var ul=$("clips"); ul.textContent="";
+    if(!clips.length){ ul.appendChild(el("li",{class:"none",text:"録画を止める、または5分たつとここに追加されます。"})); return; }
+    clips.forEach(function(c){
+      var a=el("a",{class:"btn small primary",href:c.url,download:c.name,text:"保存"});
+      var del=el("button",{class:"btn small danger",type:"button",text:"削除"});
+      del.addEventListener("click", function(){
+        URL.revokeObjectURL(c.url);
+        clips=clips.filter(function(x){ return x.id!==c.id; });
+        renderClips();
+      });
+      var vid=el("video",{controls:"",preload:"none",playsinline:""});
+      var det=el("details",null,[el("summary",{text:"再生"}),vid]);
+      det.addEventListener("toggle", function(){ if(det.open && !vid.src) vid.src=c.url; });
+      var li=el("li",{class:"item clip"},[
+        el("div",{class:"top"},[
+          el("div",{class:"meta"},[
+            el("div",{class:"t",text:c.name}),
+            el("div",{class:"s",text:hms(c.start)+" 開始 ・ "+dur(c.seconds)+" ・ "+mb(c.size)})
+          ]),
+          el("div",{class:"acts"},[a,del])
+        ]),
+        det
+      ]);
+      ul.appendChild(li);
+    });
+  }
+
+  /* ---------- video file analysis ---------- */
+  function stopFile(){
+    if(!fileMode && !fileUrl) return;
+    clearInterval(tickTimer); tickTimer=null;
+    try{ video.pause(); }catch(e){}
+    video.onended=null; stopKeepAlive();
+    video.removeAttribute("src"); video.load();
+    if(fileUrl){ URL.revokeObjectURL(fileUrl); fileUrl=null; }
+    fileMode=false; present=false; prevGray=null;
+    octx.clearRect(0,0,overlay.width,overlay.height);
+    setStatus();
+  }
+  async function analyzeFile(file){
+    if(!file) return;
+    stopCamera(); stopFile();
+    fileUrl=URL.createObjectURL(file);
+    fileMode=true; present=false; prevGray=null; lastAlert=0;
+    video.srcObject=null; video.muted=true; video.src=fileUrl;
+    $("empty").hidden=true; $("fallback").hidden=true;
+    startKeepAlive();
+    setStatus();
+    if(detMode==="person") await ensureModel();
+    if(!fileMode) return;
+    tickTimer=setInterval(tick,250);
+    video.onended=function(){
+      present=false; draw([]); setStatus();
+      toast("解析が終わりました。検知ログを確認してください。");
+    };
+    try{ await video.play(); }
+    catch(e){ toast("動画を再生できませんでした。別の形式でお試しください。"); stopFile(); $("empty").hidden=false; }
+  }
+
+  /* ---------- UI wiring ---------- */
+  $("fileCap").addEventListener("change", function(){ var f=this.files&&this.files[0]; this.value=""; analyzeFile(f); });
+  $("filePick").addEventListener("change", function(){ var f=this.files&&this.files[0]; this.value=""; analyzeFile(f); });
+  function setDetMode(m){
+    detMode=m; prevGray=null; present=false;
+    var r=document.querySelector('input[name="det"][value="'+m+'"]'); if(r) r.checked=true;
+    octx.clearRect(0,0,overlay.width,overlay.height);
+    if(m==="person" && (stream||fileMode)) ensureModel();
+    setStatus();
+  }
+  function updateNotifyBtn(){
+    var b=$("btnNotify");
+    if(!("Notification" in window)){ b.textContent="通知は非対応"; b.disabled=true; return; }
+    var p=Notification.permission;
+    b.textContent=p==="granted"?"通知: オン":p==="denied"?"通知: ブロック中":"通知を許可";
+  }
+
+  $("btnCam").addEventListener("click", function(){ if(stream) stopCamera(); else startCamera(); });
+  $("device").addEventListener("change", function(){ if(stream) startCamera(); });
+  $("btnTest").addEventListener("click", function(){
+    ensureAudio();
+    showBanner("テスト通知です", hms(new Date())); beep();
+    if("Notification" in window && Notification.permission==="granted"){
+      try{ new Notification("テスト通知です"); }catch(e){}
+    }
+  });
+  $("btnNotify").addEventListener("click", async function(){
+    if(!("Notification" in window)){ toast("このブラウザは通知に対応していません。"); return; }
+    try{ await Notification.requestPermission(); }catch(e){}
+    updateNotifyBtn();
+    if(Notification.permission!=="granted") toast("システム通知は使えませんでした。バナーと音でお知らせします。");
+  });
+  $("btnClearLog").addEventListener("click", function(){ events=[]; renderEvents(); });
+  $("sens").addEventListener("input", function(){ $("sensVal").textContent=$("sens").value; });
+  $("recMode").addEventListener("change", function(){ recMode=$("recMode").value; applyRecMode(); });
+  Array.prototype.forEach.call(document.querySelectorAll('input[name="det"]'), function(r){
+    r.addEventListener("change", function(){ if(r.checked) setDetMode(r.value); });
+  });
+  document.addEventListener("visibilitychange", function(){ if(document.visibilityState==="visible" && stream) requestWake(); });
+  window.addEventListener("beforeunload", function(e){
+    if(recorder || clips.length){ e.preventDefault(); e.returnValue=""; }
+  });
+
+  $("vol").addEventListener("input", applyVolume);
+  $("optKeep").addEventListener("change", function(){
+    if($("optKeep").checked){ if(stream||fileMode) startKeepAlive(); } else stopKeepAlive();
+  });
+  $("btnOut").addEventListener("click", chooseOutput);
+  if(window.AudioContext && AudioContext.prototype.setSinkId && navigator.mediaDevices && navigator.mediaDevices.selectAudioOutput){
+    $("btnOut").hidden=false;
+  }
+
+  renderEvents(); renderClips(); updateNotifyBtn(); setStatus();
+})();
+</script>
+</body>
+</html>
